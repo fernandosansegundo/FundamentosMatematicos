@@ -1,0 +1,414 @@
+---
+title: "Practica Final Fundamentos Matemáticos"
+author: "Juan Quer Martínez"
+date: "12/13/2020"
+output: 
+  html_document:
+    toc: true
+    toc_float: true
+---
+
+## Introducción
+En este documento se va a llevar a cabo un análisis de los datos de un dataset que contiene los datos de jugadores de futbol. Estos datos se han conseguido desde la página de Kaggle y es un set de datos del videojuego del FIFA, pero que nos pueden ayudar a tener una visión cercana del comportamiento real de los datos, pues al fin y al cabo estos estánn recogidos del mundo real.
+
+Con esta práctica pretendo hacer un estudio e interpretación de los datos sobre un tema que conozco y me interesa, así como poder responder a preguntas que se ahn hecho en es este entorno, pero pudiéndome fundamentar en los datos y en la estadística.
+
+Para llevar a cabo esta tarea, primero voy a cargar los datos analizarlos y ver su estrucutura. Una vez hecho esto los limpiaré y los adaptaré a un formato que beneficie para su poseteior tratamiento y manipulación. Finalmente, empezaré a hacer visualizaciones, sacar esadísticas sobre los datos que considere relevantes para la práctica.
+
+## Datos
+Antes de ponernos a operar con los datos y las variables, es necesario tener y entender un poco el contexto de cuales son los atributos más relevantes, así como el signifcado que estos presentan:
+
+* **ID:** es el identidicador único de cada jugador
+* **Name**: el nombre del jugador
+* **Nationality**: es la nacionalidad del jugador
+* **Club**: es el equipo en el que el jugador está trabajando actualmente
+* **Value**: el valor actual en euros del jugador
+* **Wage**: también en euros, representa el sueldo del jugador
+* **Overall**: desde mi perspectiva es una de las variables más relevantes, pues indica la puntuación general que recibe un jugador
+* **Potential**: se basa en la misma idea que el punto anterior, pero su visión es a futuro (a largo plazo)
+* **Preferred Foot**: indica cual es el pie "bueno" del futbolista
+* **Position**: es la posición en la que juega el jugador
+* **Joined**: fecha de incorporación al equipo
+* **Contract.Valid.Until**: es cuando caduca el contrato
+* **Height**: altura del jugador (en pies)
+* **Weight**: peso del jugador en libras
+* **Release.Clause**: es la cláusula de recisión, es decir, cuanto se debe pagar si el futbolista se quiere cambiar de equipo
+* **Resto de variables**: en cuanto al resto de variables, hacen referencia a puntuaciones más detalladas del jugador, que puede que me sean útiles más adelante para este estudio
+
+### Carga
+A continuación, se van a cargar los datos y llevar a cabo la limpieza de los datos. Realizamos la carga desde el CSV y visualizamos los primeros para entender un poco la estructura de los mismos.
+
+```{r}
+library(kableExtra)
+datos = read.csv("datos/data.csv")
+data_shape = dim(datos)
+```
+Se puede apreciar que de momento y sin ningún tipo de tratatemiento previo, el dataset contiene **`r data_shape[1]`** filas (jugadores) y **`r data_shape[2]`** columnas, que son los atributos del jugador.
+
+### Limpieza
+Para que no me estén molestando continuamente, me voy a quitar las columnas que tengo claro que no voy a usar. Con las que tengo duda, de momento las dejo que me pueden venir bien para el futuro. No voy a imprimir por pantalla todos los campos porque hay demasiados.
+```{r}
+# Eliminamos los datos de las columnas especidicadas
+datos <- datos[,-which(names(datos) %in% c("X","Photo","Flag","Club.Logo","Special","Body.Type","Real.Face","Jersey.Number","Joined","Loaned.From","Contract.Valid.Until"))] 
+head(datos,1)%>%
+  kable() %>%
+  kable_styling() %>% scroll_box(width = "100%")
+```
+La tabla anterior permite haces scroll horizontal para ver todas las variables de una forma cómoda. Ahora voy a ver la tipología de los datos y como se comportan de forma general. No voy a hacer mucho hincapié ahora mismo, ya que estos resultados me han venido bien a lo largo de la práctica para saber como puedo tratar los datos y que operaciones previas tengo que hacer. Como esto ocupa mucho, en el informe no voy a impimir estos resultados. Si se desea obtener más información sobre ello se puede ejecutar el programa o consultar el archivo donde se han exportado estos datos dentro de la carpeta outputs de mi repositorio de github.
+
+```{r results = 'hide'}
+(str(datos))
+write.csv(str(datos),"./output/strdatos.csv")
+(summary(datos))
+write.csv(summary(datos),"./output/summarydatos.csv")
+```
+
+
+```{r}
+# Importo la librería para poder usas dplyr
+library(tidyr)
+# Cuento cuantos datos hay vacíos
+nan_values = datos %>%
+  is.na() %>%
+  sum()
+# Cuantos vacíos hay en porcentaje
+porcentaje_vacios = 100 * nan_values/data_shape[1]
+```
+
+En el código anterior una vez que nos hemos quitado las columnas menos relevantes, analizamos su estructura. Después, vemos  cuantos datos vacío (na) tiene nuestro dataset:**`r nan_values`**, que pueden parecer muchos pero si miramos el porcentaje sobre el total de los datos no es tanto **(`r porcentaje_vacios`)%**, por ello nos permitimos quitarnos todas las filas que contengan elementos vacíos.
+
+```{r}
+# Me puedo permitir eliminalos
+datos = datos %>%
+  drop_na()
+```
+
+Para finalizar este apartado de limpieza de los datos quea aplicar algunas fuunciones de restrucuturación. Algunas de las variables que hemos definido en el apartado de los datos de tipo string, nos interesa verlas como un factor, como puede ser el pie preferido por el jugador.
+
+Otras transformaciones que voy a realizar sobre los datos son conversiones de unidades en las columnas de altura y peso, que las coy a convertir a metros y kilogramos respectivamente, pues las unidades que viene por defecto son poco representativas para mi. 
+
+Empezamos por el peso (Weigth), su principal problema es que tiene las unidades insertadas dentro de la columna del DataFrame, por ello voy a aplicarle una fucnión de dividir por strings, y lo que voy a emplear para dividir son las unidades en si mismo **lbs**. Además como se ha visto anteriormente gracias al análisis de las variables con el comadno **str**, se ha visto que el tipo es __factor__, eso no nos interesa. Por ello nos quedamos con el valor en si con __as.character__. Finalmente ya tenemos los datos listos para transformarlos a tipo numérico y lo hacemos, para poder aplicarle así la constante de trasnformació a libras. Lo almacenamos en la columna **Weigth.kg** quedandonos solo con las 4 primeras cifras significativas.
+
+```{r}
+cte_libras = 0.453592
+datos$Weigth.kg = signif(as.numeric(do.call('rbind', strsplit(as.character(datos$Weight),'lbs',fixed=TRUE)))*cte_libras,4)
+head(datos$Weigth.kg,2)%>%
+  kable() %>%
+  kable_styling()
+```
+
+La misma idea de ante se aplica para la altura. Se tiene el mismo problema que con los factores, que se resuelve igual que antes, pero en este caso no se puede transformar a número porque a r no le gusta la coma que hay puesta. Por ello se tiene que reemplazar para todos esa coma por una que r entienda en este caso un punto. A partir de ahí y se pueden aplicar la transformación que se mencionaba.
+```{r}
+cte_pies=0.3048
+datos$Height.m=signif(as.numeric(gsub("'",".",as.character(datos$Height)))*cte_pies,3)
+head(datos$Height.m,2)%>%
+  kable() %>%
+  kable_styling()
+```
+Lo que nos queda son los valores de dinero: tanto el salario, como el coste y la cláusula de recesión. Aquí se ve que vuelven a estar como factores, y además tienen el valor de la moneda dentro por ello es interesante transformarlos y tenerlo simplemente como numero enteros representados direcatmente en mil o millones dependiendo de la columna.
+```{r}
+datos$Wage=as.numeric(gsub("K","",gsub("€","",as.character(datos$Wage))))
+datos$Release.Clause=as.numeric(gsub("M","",gsub("€","",as.character(datos$Release.Clause))))
+datos$Value=as.numeric(gsub("M","",gsub("€","",as.character(datos$Value))))
+# Quitamos el factor a la columna de nombre que no es interesante
+datos$Name = as.character(datos$Name)
+```
+
+## Análisis
+Ahora que ya se tiene los datos con la estructura adecuada, ya podemos emepzar a ahcer interpretaciones sobre los mismos. Este es el apartado principal de la práctica. Desde aquí se va a hacer un estudio de las variables más relevantes de nuestro conjunto de datos. Luego en función de las resultados de este análisis se llevarán acabo ciertas acciones como regresiones, confinazas etc.
+
+### Variable Overall
+### Histograma
+El primer parámetro que me parece más relevante a analizar es el Overall, que es la puntuación general que recibe el jugador.Empiezo con un histograma para tantear la distribución de lo datos. En la siguiente imagen se puede ver como el resultado es semejante al de una Normal, __más adelante se hará el estudio de la normalidad__.
+
+```{r}
+library(ggplot2)
+
+ggplot(data=datos) +
+  geom_histogram(aes(Overall), bins = 49, fill = "#adc6ed", color="black") +
+  ylab("Registros") +
+  xlab("Puntuacion Total")
+```
+
+### Boxplot
+Este gráfico me va a dar más infomración de como están distribuidos los datos. Se puede ver que el **IQR `r IQR(datos$Overall)`**, lo que implica que tenemos el **50% de los datos central apenas entre `r IQR(datos$Overall)` puntos**, lo que favorece la competencia. 
+
+
+
+```{r}
+ggplot(datos) +
+  geom_boxplot(aes(Overall), fill = "#adc6ed", color="black")
+
+```
+```{r fig.show='hide'}
+# Calculo de valores atipicos
+bp = boxplot(datos$Overall)$out
+estrella = sort(bp[bp>mean(datos$Overall)])[1]
+
+
+```
+
+Ahora con las posiciones, que ocupan esos Outlayers, podemos sacar los nombres de los jugadores catalogados fuera de lo común: tanto para  bien como para mal. Más adelante se ve que solo se consideran los que están __por encima__.
+```{r}
+head(datos$Name[which(datos$Overall %in% bp)],10)%>%
+  kable() %>%
+  kable_styling()
+```
+
+### Valores Atípicos
+Otro aspecto que me interesa del gráfco es ver los valores atípicos. Podemos extraer cuales son los jugadores estrella. La condición de que un jugador sea una estrella, es que sea fuera de lo normal, lo que es la definición de los valores atípicos. Con el código de la caja anterior, he obtenido en R clásico cual es el valor mínimo de Overall para considerar a un jugador una estrella. (Soy consciente de que lo podía sacar con la fórmula estadística, pero he querido usar R para seguir practicando).
+
+Se llega a la conclusión que para considerar a un jugador como una estrella, su **Overall debe ser mayor que `r estrella`**. Para el futuro de la práctica es intersante saber esto, por ello lo voy a guardar en una columna nueva. En este caso hago uso de dplyr, por ir combinando los métodos.
+
+
+```{r message=FALSE, warning=FALSE}
+library(tidyr)
+library("dplyr")
+datos = datos %>%
+  mutate(JugadorEstrella = ifelse(Overall >= 85, "Estrella", "No estrella"))
+```
+
+### Normalidad
+Por último nos queda analizar la normalidad del Overall. Para ello en la siguiente gráfica hay que ver cuanto difeiren los punto de la recta en la siguiente gráfica. Por lo general se ve que es basante normal, aunque en los extremos difiere un poco no es preocupante. A partir de este gráfico podemos ver que sigue un comportamiento normal.
+
+```{r}
+
+qqnorm(datos$Overall, main="Normalidad")
+qqline(datos$Overall, lwd=2, col="red")
+# shapiro.test(datos$Overall) no se puede hacer con mas de 5000 registros
+```
+
+### Intervalo de confianza
+Viendo los resultados del gráfico anterior, se puede considerar esta variable como un variable normal. A partir de ello me voy a construir un **intervalo de confianza al 90%** para la media de esta variable que recordemos que es la ponderación total del jugador **(Overall)**. No he podido emplear el shapiro.test para tener más datos sore la normalidad porque solo admite 5000 registros como máximo.
+
+```{r}
+nc = 0.90
+alfa = 1 - nc
+(zc = qnorm(alfa / 2, lower.tail = FALSE)) # Atención, cola derecha
+
+## Intervalos de confianza con R.
+n = length(datos$Overall)
+barX =mean(datos$Overall)
+s = sd(datos$Overall)
+(intervalo = barX + c(-1, 1) * zc * s / sqrt(n))%>%
+  kable() %>%
+  kable_styling()
+```
+Como podíamos esperar a partir del histograma y del boxplot de antes, este intervalor es muy pequeño debido a la concentración de datos tal y como preveía el **IQR**.
+
+## Probabilidades
+Una pregunta muy común que se lleva haciendo a lo largo de los años en este mundo del fútbol es que normalmente solamente se consideran a los Delanteros y a la gente que marca goles como estrellas. Por ello y con los datos en la mano voy a ur calculándome este conjunto de probabilidades para intentar ir respondiendo a las preguntas.
+```{r}
+# Filtramos por estrella, agrupamos por posición
+posEstrella = datos %>% 
+    filter(JugadorEstrella == "Estrella")  %>%
+    group_by(Position) %>%
+    count()
+
+# Trabsformamos a porcenaje
+posEstrella$n = (posEstrella$n  / sum(posEstrella$n))*100
+
+# Basic barplot
+ggplot(data=posEstrella, aes(x=Position, y=n)) +
+  geom_bar(stat="identity", fill = "#adc6ed", color="black") + coord_flip() +
+  ylab("Porcentaje %") +
+  xlab("Posición")
+```
+
+Del gráfico anterior, se puede ver como ese rumor es falso, pues se puede ver que la distribución de las estrellas a lo largo de las posiciones presenta por lo general bastante equidad. Además en el gráfico se puede ver que la máxima presencia se debe a los porteros **(GK)** y no a los delanteros como se estimaba de primeras.
+
+### Tabla
+Ahora sobre el conjunto de datos original, me ha aprecido interesante hacer un estudio de cuales son las probabilidades de que un jugador sea diestro o zurdo en función de la posición que ocupa. Para ello me genero la siguiente tabla de probabilidades.
+
+```{r}
+tablaProbabilidad = addmargins(prop.table(table(datos$Preferred.Foot,datos$Position)))
+tablaProbabilidad%>%
+  kable() %>%
+  kable_styling() %>% scroll_box(width = "100%")
+```
+La tabla permite hacer scroll, para poder ver bien todos los datos. Con esta tabla podemos sacar probabilidades del como que un jugador sea delantero y zurdo **`r tablaProbabilidad[2,28]*100`%**.
+
+### Mosaico
+Desde mi punto de vista, la tabla anterior refleja demasiados números. Por ello me ha parecido buena idea representarlo en un gráfico de tipo mosaico que queda es un poco más representativo.
+
+```{r}
+mosaicplot(table(datos$Position, datos$Preferred.Foot), color = c("#adc6ed","#ccebd4"), title("Pie y posición"))
+```
+
+En el gráfico anterior se puede ver como de fomra general para cada posición más de la mitad son diestros, incluso si la posición es el la banda izquierda. La única excepción que se salva es **LB** que es una de las posiciones de la banda izquieda L = left (izquierda).
+
+## Selecciones (Paises)
+Para este apartado voy a hacer un estudio agrupado por selecciones. La forma en la que voy a poder trababjar con las selecciones es agrupando a los jugadores por su nacionalidad. La forma en la que voy a evaluar cada una de las selecciones es como la media del parámetro Overall que las componen. Empezamos generando esta tabla a partir de los conocimientos de dpyr vistos en clase.
+
+### Preparacion
+```{r}
+nacionalidades = datos %>%
+  group_by(Nationality) %>%
+  summarise(Medias = mean(Overall))
+
+head(nacionalidades) %>%
+  kable() %>%
+  kable_styling()
+```
+
+En la variable nacionalidades ya tenemos un DataFrame preparado para poder realizar los estudios propuestos para este apartado. Se ha printeado por pantalla un pequeño fragmento de la estructura que presenta este DataFrame.
+
+### Mapa
+Desde mi punto de vista, la siguiente gráfica es una de las más interesantes de todo el informe. Se va crear un mapa deográfico que muestre todos los paises y va a **colorear cada uno de los paises en función de la media calculada anteriormente**, cuanto más intenso significa que es mejor. Está discretizado hasta 9 valores máximo que especifica la documentación. Es decir que dos paises que tengan una media bastante parecida, probablemente se les asigne el mismo color.
+ 
+```{r message=FALSE, warning=FALSE}
+library(leaflet)
+WorldCountry <-geojsonio::geojson_read("maps/countries.geo.json", what = "sp")
+data_Map <- WorldCountry[WorldCountry$name %in% nacionalidades$Nationality, ]
+bins <- seq(from = 15, to = 70, by = 5) 
+pal <- colorBin("YlOrRd", domain = nacionalidades$Medias, bins = bins)
+
+leaflet(data_Map) %>% addTiles() %>% addPolygons(
+  fillColor = pal(nacionalidades$Medias),
+  weight = 2,
+  opacity = 3,
+  color = 'white',
+  dashArray = '3',
+  fillOpacity = 0.7
+)
+```
+
+### Top 10
+El mapa anterior es dinámico y nos podemos ir moviendo sobre él. El mapa anterior nos da una imagen visual bastante interesante, ahora vamos a plantar diferentes perspectivas para la visualización de esta misma información. Comenzaremos con una simple lista que contiene el **TOP 10** según el método de clasificación que se ha elegido (Media del Overall)
+
+```{r}
+head(nacionalidades[order(-nacionalidades$Medias),],10)%>%
+  kable() %>%
+  kable_styling()
+```
+
+### BoxPlost por país
+Lo que nos interesa quedarnos es con los nombres del top 10 de selecciones, porque quiero **estudiar individualmente por medio de unos boxplots la distribución que siguen estos paises.** Aplico dplyr para poder sacarlos, y lo vuelvo aplicar para quedarme solo con la lista de los jugadores presentes en el top 10 de selecciones. Una vez que se obtiene esto podemos hacer un gráfcio de con 10 box plots y estudiar su distribución,
+
+Hay que destacar, que al igual que pasaba en algunos apartados anteriores, el dataframe se me queda guardado automáticamente como un factor, y eso en este caso no nos interesa, por ello le tenemos que indicar a R que con lo que tiene que trabbajar es con el valor en sí (character)
+
+```{r}
+top10.selecciones = nacionalidades[order(-nacionalidades$Medias),]%>% 
+  slice(1:10) %>%
+  select("Nationality")
+
+datos.10.selecciones = datos %>%
+  filter(Nationality %in% as.character(top10.selecciones$Nationality))
+
+ggplot(datos.10.selecciones) +
+  geom_boxplot(aes(x=Nationality, y=Overall), fill = "#adc6ed", color="black") + theme(axis.text.x = element_text(angle = 90))
+```
+
+Ha sido muy interesante este gráfico, porque **me ha ayudado a resolver mis sospechas sobre el top 10 de paises**. En general más o menos me cuadraban a partir de mi experiencia en este campo. Sin embargo habia algunos que no coo pueden ser **Oman o SAO Tome &Proncipe o Emiratos arabes**. Se ve que o tienen super pocos valores o es mucha casualidad y todos los jugadores tienen la misma puntuación. Por ello voy a hacer a continuación una serie de cálculos para ver cual de las dos hipótesis planteadas se cumple.
+
+```{r}
+datos %>%
+  filter(Nationality %in% c("Oman","United Arab Emirates","São Tomé & Príncipe")) %>%
+  group_by(Nationality) %>%
+  count()%>%
+  kable() %>%
+  kable_styling()
+```
+Vemos a partir de la tabla anterior como mi primera hipótesis era correcta. Lo que esto quiere decir es que no es una selección muy buena, sino que solamente tienen un jugador muy bueno. Esto ha sido un fallo de limpieza y del valor del dato.
+
+## Equipos
+El mismo estudio que he hecho para las selecciones lo voy a hacer por equipos. Empezamos agrupando por equipos, resumimos por la medaia del Overall, ordenamos y nos quedamos con los 10 primeros (Top 10)
+
+### Preparación
+```{r}
+equipos = datos %>%
+  group_by(Club) %>%
+  summarise(Medias = mean(Overall))
+
+top10.equipos= equipos[order(-equipos$Medias),]%>% 
+  slice(1:10) %>%
+  select("Club")
+library(kableExtra)
+# Imprimimos los mejores 10 equipos del mundo
+top10.equipos%>%
+  kable() %>%
+  kable_styling()
+```
+
+### BoxPlots
+Ahora que ya se tiene el datafame con el top 10 de los equipos, nos vamos a quedar con los jugadores que pertenezcan a alguno de los equipos que se han obtenido. Recordemos que nos encontramos en la misma situación que antes: automaticamente nos lo está guardadno como factores, por ello tenemos que tener cuidado y quedarnos exclusivamente con el valor en si mismo.
+
+```{r}
+
+datos.10.equipos = datos %>%
+  filter(Club %in% as.character(top10.equipos$Club))
+
+ggplot(datos.10.equipos) +
+  geom_boxplot(aes(x=Club, y=Overall), fill = "#adc6ed", color="black") + theme(axis.text.x = element_text(angle = 90))
+```
+
+Es interesante analizar cómo en el primer BoxPlot de la prácica, en el que se calculaba la distribución total de los datos de la variable Overall, había unos outlayer superiores, que ahora ya no se producen. Tiene sentido porque destacar entre la multitud es más "sencillo" que conseguir destacar en un equipo de alto nivel como es el caso que representa la imagen anterior.
+
+
+## Regresión
+
+Analicemos ahora la posible relación entre las variable Overall y Value. Emplearé un diagrama de dispersión y un modelo de regresión lineal usando Value como variable respuesta y Overall como variable explicativa. Añade la recta de regresión lineal al diagrama de dispersión.
+
+### Lineal
+
+En la siguiente imagen se va a representar un gráfico de dispersión con la relación entre el Overall de los jugadores y su valor en el mercado. Puede verse que la regresión lineal en este caso no tiene demasiado sentido porque apenas es capaz de ajustarse a los datos.
+```{r}
+modelo = lm(Value ~ Overall, data = datos)
+modelo$coefficients
+
+# Coeficientes del modelo
+b0 = modelo$coefficients[1]
+b1 = modelo$coefficients[2]
+
+ggplot() +
+  geom_point(aes(datos$Overall, datos$Value), col = "darkgreen") +
+  geom_abline(intercept = b0, slope = b1, color="blue", size = 1.5)
+
+correlacion = cor(datos$Overall, datos$Value, use = "na.or.complete")
+```
+
+
+Se ve que el coeficiente correlacion de Pearson es más o menos bueno  **`r correlacion`** Como me parece una regresión bastante importante, pues es lo que permite ver la relación del precio del jugador en el mercado, **voy a hacer un ajuste de orden 3**, dado que el orden 2 pienso que también limita un poco el resultado, aunque mejora. No quiero subir el orden del polinimio, porque aunque es cierto que para estos datos va a adaptarse muy bien, voy  aestar sobreajustando y voy a perder el contexot, algo que no es interesante al pretender que esto escale.
+
+### Orden 3
+
+```{r}
+# Se construye el modelo
+modelo.orden.3 <- lm(Value ~ datos$Overall + I(Overall^2)++ I(Overall^3), data = datos)
+# Eje para representar, me estaba dando problemas line
+ejex = seq(from = 50, to = 100, by = 0.1) 
+# Valores en si
+p = modelo.orden.3$coefficients[1] + modelo.orden.3$coefficients[2]*ejex +modelo.orden.3$coefficients[3]*ejex**2 + modelo.orden.3$coefficients[4]*ejex**3
+# VAmos a representar los dos modelos para que se vea la comparativa
+ggplot() +
+  geom_point(aes(datos$Overall, datos$Value), col = "darkgreen") +
+  geom_abline(intercept = b0, slope = b1, color="blue", size = 1.5)+
+  geom_point(aes(ejex, p), col = "red")
+
+```
+
+Ahora ya podemos predecir el valor y ver como de lejos se queda del real. Como para este modelo de orden 3 la funcion de predict de R me estaba dando problmeas, me he creado yo mismo mi propia función para predecir el valor. Ahora lo que hare será probar la diferencia que hay entre el valor real y el ajustado por la curva del primer jugador de nuestro DataSet.
+```{r}
+predecir <- function(x) modelo.orden.3$coefficients[1] + modelo.orden.3$coefficients[2]*x +modelo.orden.3$coefficients[3]*x**2 + modelo.orden.3$coefficients[4]*x**3
+
+sapply(95, predecir)
+res = sapply(datos$Overall[1], predecir)
+datos$Value[1]-res
+
+```
+
+
+## WebScrapping
+Desde el principio de la práctica me apetecía hacer WS, sin embargo, los datos que he encontrado estaban muy bien y no me ha hecho falta. Por ello se me ha ocurrido que puede ser interesante que este programa no sea estático, es decir, que los valores de los jugadores puedan ir cambiando en función de los resultados que vayan obteniendo sus equipos. Para esta parte me parece más sencillo usar Python, aunque la asignatura sea de R, creo que se puede usar Python igualmente como una herramienta más
+
+La idea va a ser la siguiente, el usuario, podrá meter por pantalla la jornada que desea actualizar, se hare un scrapeo de una página del marca y obtendrá los resultados. Después de hacer las transformaciones requeridas, se le asignará un valor al equipo por la victoria, el mismo pero en negativo por la derrota y 0 en caso de empate.
+
+En mi repositorio de GitHub para esta parte hay una carpeta que contiene un notebook de ejemplo con el código que hace estas funcionalidades y exporta un DataFrame para así poder trabajar con los datos desde R o Python en cualquier momento. (He tratado de hacer lo que se comentó en clase de añadir chunks de Python, pero para mi trabajo tengo que usar varias versiones de Python y me estaban dando problemas)
+
+
+## Conclusiones
+De esta forma he tratado poner en práctica todos los conocimientos aprendidos a lo largo de la asignatur reflejados en un conjunto de datos. Reflejar todo sobre un único conjunto de datos es bastante complejo, pero si hay algún concepto que no haya quedado reflejado aquí seguro que ha quedado en el examen o en alguno de los tests.
+
+Me ha venido bien poder usar R y aplicarlo sobre unos datos que son de mi interés y me han ayudado a responderme a preguntas que se hacían en este contexto, pero apoyándome en los datos y en la estadística.
+
+Para poder hacer uso de algunos gráficos, como por ejemplo el mapa del mundo, he tenido que hacer uso de algunos ficheros adicionales, que se podrán encontrar en mi repositorio de github.
